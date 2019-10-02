@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import (QWidget, QFileDialog, QApplication, QLayout, QLabel, QHBoxLayout,
-                             QVBoxLayout, QTableWidget, QTableWidgetItem, QPushButton, QFileDialog, QLineEdit)
+                             QVBoxLayout, QTableWidget, QTableWidgetItem, QAbstractItemView, QPushButton, QFileDialog, QLineEdit)
 from PyQt5.QtCore import *
 import pyqtgraph as pg
 import numpy as np
@@ -96,6 +96,7 @@ class MainWindow(QWidget):
             self.table_widget.setRowHeight(i, 5)
         for j in range(0, self.table_widget.columnCount()):
             self.table_widget.setColumnWidth(j, 5)
+        self.table_widget.setEditTriggers(QAbstractItemView.NoEditTriggers)
 
     def reset_interval(self):
         self.startIndex = 0
@@ -118,7 +119,7 @@ class MainWindow(QWidget):
     def right(self):
         start_time = int(self.start_time_edit.text())
         end_time = int(self.end_time_edit.text())
-        if end_time <= start_time:
+        if end_time <= start_time or self.timeArr is None:
             return
         self.graphNum += 1
         self.startIndex += 1
@@ -134,7 +135,7 @@ class MainWindow(QWidget):
         start_time = int(self.start_time_edit.text())
         end_time = int(self.end_time_edit.text())
 
-        if self.fileName is None or end_time < start_time:
+        if self.fileName is None or not self.fileName[0] or end_time < start_time:
             return
 
         file_read = tables.open_file(self.fileName[0], mode='r')
