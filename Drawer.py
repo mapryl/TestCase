@@ -149,7 +149,7 @@ class MainWindow(QWidget):
         low_data = file_read.root['data'][self.startIndex][:self.P]
         high_data = file_read.root['data'][self.startIndex][self.P:self.P * 2]
         table_data = np.array(file_read.root['data'][self.startIndex][self.P * 2:])
-
+        print(sum(table_data))
         file_read.close()
 
         self.bar_plot_widget.set_data(low_data, high_data)

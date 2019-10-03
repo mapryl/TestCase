@@ -42,7 +42,7 @@ class Solver:
         return file, datetime_array, data_array
 
     def price_counter(self, price_min, price_max, low, high):
-        if low >= price_min and high <= price_max:
+        if low >= price_min and high < price_max:
             return 1
         elif low >= price_max or high <= price_min:
             return 0
@@ -83,6 +83,7 @@ class Solver:
                                                                low_data[n_mini],
                                                                high_data[n_mini])
                     table.append(result)
+            # print(round(np.array(table).sum(), 2))
             datetime_int = self.data['TIME'][i] // 100
             datetime_array.append([datetime_int])
             to_save = list(low_data) + list(high_data) + table
