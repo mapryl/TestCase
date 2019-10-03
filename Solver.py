@@ -45,6 +45,8 @@ class Solver:
         if low >= price_min and high < price_max:
             return 1
         elif low >= price_max or high <= price_min:
+            if low == high and price_max == 1 and high == 1:
+                return 1
             return 0
         elif low >= price_min:
             return (price_max - low) / (high - low)
@@ -83,7 +85,7 @@ class Solver:
                                                                low_data[n_mini],
                                                                high_data[n_mini])
                     table.append(result)
-            # print(round(np.array(table).sum(), 2))
+            print(round(np.array(table).sum(), 2))
             datetime_int = self.data['TIME'][i] // 100
             datetime_array.append([datetime_int])
             to_save = list(low_data) + list(high_data) + table
@@ -93,4 +95,4 @@ class Solver:
 
 
 solver = Solver('./2_5219905305105663004')
-solver.run(0, 797)
+solver.run(797, 1583)
