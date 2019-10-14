@@ -85,7 +85,7 @@ class Solver:
                                                                low_data[n_mini],
                                                                high_data[n_mini])
                     table.append(result)
-            print(round(np.array(table).sum(), 2))
+            # print(round(np.array(table).sum(), 2))
             datetime_int = self.data['TIME'][i] // 100
             datetime_array.append([datetime_int])
             to_save = list(low_data) + list(high_data) + table
@@ -96,3 +96,4 @@ class Solver:
 
 solver = Solver('./2_5219905305105663004')
 solver.run(797, 1583)
+print("Done")
