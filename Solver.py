@@ -2,7 +2,7 @@ import pandas as pd
 import tables
 import numpy as np
 
-
+@profile
 def load_data(file_name):
     cols = ['<DATE>', '<TIME>', '<HIGH>', '<LOW>']
     data = pd.read_csv(file_name, usecols=cols)
@@ -13,8 +13,9 @@ def load_data(file_name):
 
     return data
 
-
+@profile
 class Solver:
+    @profile
     def __init__(self, file_name):
         self.data = load_data(file_name)
         self.M = 10
@@ -22,7 +23,7 @@ class Solver:
         self.P = 60
         self.time_step = self.P / self.N
         self.price_step = 1 / self.M
-
+    @profile
     def run(self, start_time, end_time):
         output_filename = str(self.data['DATE'][start_time]) + '.h5'
         file, datetime_array, data_array = self.create_output_storage(output_filename)
@@ -30,7 +31,7 @@ class Solver:
         self.process_data(start_time, end_time, datetime_array, data_array)
 
         file.close()
-
+    @profile
     def create_output_storage(self, filename):
         file = tables.open_file(filename, mode='w')
         datetime_atom = tables.Int64Atom()
@@ -40,7 +41,7 @@ class Solver:
         data_array = file.create_earray(file.root, 'data', data_atom, (0, 250))
 
         return file, datetime_array, data_array
-
+    @profile
     def price_counter(self, price_min, price_max, low, high):
         if low >= price_min and high < price_max:
             return 1
@@ -54,7 +55,7 @@ class Solver:
             return (high - price_min) / (high - low)
         else:
             return (price_max - price_min) / (high - low)
-
+    @profile
     def process_data(self, start_time, end_time, datetime_array, data_array):
         for i in range(self.P + start_time, end_time):
             max_price = self.data['HIGH'][i - self.P: i].max()
