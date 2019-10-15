@@ -1,9 +1,10 @@
 import pandas as pd
 import tables
 import numpy as np
+import time
 
-@profile
-def load_data(file_name):
+
+def loadData(file_name):
     cols = ['<DATE>', '<TIME>', '<HIGH>', '<LOW>']
     data = pd.read_csv(file_name, usecols=cols)
     data.rename(columns={'<DATE>': 'DATE', '<TIME>': 'TIME', '<HIGH>': 'HIGH', '<LOW>': 'LOW'}, inplace=True)
@@ -13,88 +14,119 @@ def load_data(file_name):
 
     return data
 
-@profile
+
+def createOutputStorage(filename):
+    file = tables.open_file(filename, mode='w')
+    datetimeAtom = tables.Int64Atom()
+    datetimeArray = file.create_earray(file.root, 'datetime', datetimeAtom, (0,))
+
+    dataAtom = tables.Float64Atom()
+    dataArray = file.create_earray(file.root, 'data', dataAtom, (0, 250))
+
+    return file, datetimeArray, dataArray
+
+
+def priceCounter(priceMin, priceMax, low, high):
+    if low >= priceMin and high < priceMax:
+        return 1
+    elif low >= priceMax or high <= priceMin:
+        if low == high and priceMax == 1 and high == 1:
+            return 1
+        return 0
+    elif low >= priceMin:
+        return (priceMax - low) / (high - low)
+    elif high <= priceMax:
+        return (high - priceMin) / (high - low)
+    else:
+        return (priceMax - priceMin) / (high - low)
+
+
 class Solver:
-    @profile
     def __init__(self, file_name):
-        self.data = load_data(file_name)
+        self.data = loadData(file_name)
         self.M = 10
         self.N = 13
         self.P = 60
-        self.time_step = self.P / self.N
-        self.price_step = 1 / self.M
-    @profile
-    def run(self, start_time, end_time):
-        output_filename = str(self.data['DATE'][start_time]) + '.h5'
-        file, datetime_array, data_array = self.create_output_storage(output_filename)
+        self.timeStep = self.P / self.N
+        self.priceStep = 1 / self.M
+        self.lowDataNorm = []
+        self.highDataNorm = []
+        self.maxPrice = 0
+        self.minPrice = 0
+        self.maxIndex = pd.Series([])
+        self.minIndex = pd.Series([])
+        self.table = np.zeros((self.M * self.N))
 
-        self.process_data(start_time, end_time, datetime_array, data_array)
+    def run(self, startTime, endTime):
+        outputFilename = str(self.data['DATE'][startTime]) + '.h5'
+        file, datetimeArray, dataArray = createOutputStorage(outputFilename)
+
+        self.processData(startTime, endTime, datetimeArray, dataArray)
 
         file.close()
-    @profile
-    def create_output_storage(self, filename):
-        file = tables.open_file(filename, mode='w')
-        datetime_atom = tables.Int64Atom()
-        datetime_array = file.create_earray(file.root, 'datetime', datetime_atom, (0,))
 
-        data_atom = tables.Float64Atom()
-        data_array = file.create_earray(file.root, 'data', data_atom, (0, 250))
+    def normalize(self, highData, lowData):
+        self.maxPrice = highData.max()
+        self.minPrice = lowData.min()
+        self.highDataNorm = highData.apply(
+            lambda x: (x - self.minPrice) / (self.maxPrice - self.minPrice)).reset_index(drop=True)
+        self.lowDataNorm = lowData.apply(
+            lambda x: (x - self.minPrice) / (self.maxPrice - self.minPrice)).reset_index(drop=True)
+        self.maxIndex = highData[highData == self.maxPrice]
+        self.minIndex = lowData[lowData == self.minPrice]
 
-        return file, datetime_array, data_array
-    @profile
-    def price_counter(self, price_min, price_max, low, high):
-        if low >= price_min and high < price_max:
-            return 1
-        elif low >= price_max or high <= price_min:
-            if low == high and price_max == 1 and high == 1:
-                return 1
-            return 0
-        elif low >= price_min:
-            return (price_max - low) / (high - low)
-        elif high <= price_max:
-            return (high - price_min) / (high - low)
-        else:
-            return (price_max - price_min) / (high - low)
-    @profile
-    def process_data(self, start_time, end_time, datetime_array, data_array):
-        for i in range(self.P + start_time, end_time):
-            max_price = self.data['HIGH'][i - self.P: i].max()
-            min_price = self.data['LOW'][i - self.P: i].min()
-            low_data = self.data['LOW'][i - self.P: i].apply(
-                lambda x: (x - min_price) / (max_price - min_price)).reset_index(
-                drop=True)
-            high_data = self.data['HIGH'][i - self.P: i].apply(
-                lambda x: (x - min_price) / (max_price - min_price)).reset_index(
-                drop=True)
-            table = []
-            for n in range(0, self.N):
-                n_max = self.time_step * (n + 1)
-                n_min = self.time_step * n
-                n_maxi = int(n_max)
-                for m in range(0, self.M):
-                    n_mini = int(n_min)
-                    result = (1 - (n_min % 1)) * self.price_counter(self.price_step * m, self.price_step * (m + 1),
-                                                                    low_data[n_mini],
-                                                                    high_data[n_mini])
-                    n_mini += 1
-                    while n_mini < n_maxi:
-                        result += 1 * self.price_counter(self.price_step * m, self.price_step * (m + 1),
-                                                         low_data[n_mini],
-                                                         high_data[n_mini])
-                        n_mini += 1
-                    result += (n_max % 1) * self.price_counter(self.price_step * m, self.price_step * (m + 1),
-                                                               low_data[n_mini],
-                                                               high_data[n_mini])
-                    table.append(result)
-            # print(round(np.array(table).sum(), 2))
-            datetime_int = self.data['TIME'][i] // 100
-            datetime_array.append([datetime_int])
-            to_save = list(low_data) + list(high_data) + table
-            to_save = np.array([to_save])
-            to_save_shaped = to_save.reshape(1, 250)
-            data_array.append(to_save_shaped)
+    def createMatrix(self):
+        for n in range(0, self.N):
+            nMax = self.timeStep * (n + 1)
+            nMin = self.timeStep * n
+            nMaxI = int(nMax)
+            for m in range(0, self.M):
+                nMinI = int(nMin)
+                result = (1 - (nMin % 1)) * priceCounter(self.priceStep * m, self.priceStep * (m + 1),
+                                                         self.lowDataNorm[nMinI],
+                                                         self.highDataNorm[nMinI])
+                nMinI += 1
+                while nMinI < nMaxI:
+                    result += 1 * priceCounter(self.priceStep * m, self.priceStep * (m + 1),
+                                               self.lowDataNorm[nMinI],
+                                               self.highDataNorm[nMinI])
+                    nMinI += 1
+                result += (nMax % 1) * priceCounter(self.priceStep * m, self.priceStep * (m + 1),
+                                                    self.lowDataNorm[nMinI],
+                                                    self.highDataNorm[nMinI])
+                self.table[n * self.M + m] = result
+
+    def processData(self, startTime, endTime, datetimeArray, dataArray):
+        highData = self.data['HIGH'][startTime: self.P + startTime]
+        lowData = self.data['LOW'][startTime: self.P + startTime]
+        self.normalize(highData, lowData)
+        for i in range(self.P + startTime, endTime):
+            highData = self.data['HIGH'][i - self.P: i]
+            lowData = self.data['LOW'][i - self.P: i]
+            if (highData.iloc[-1] > self.maxPrice or lowData.iloc[-1] < self.minPrice or self.maxIndex.iloc[-1] < 0
+                    or self.minIndex.iloc[-1] < 0):
+                self.normalize(highData, lowData)
+            else:
+                self.highDataNorm.drop(index=0, inplace=True)
+                self.lowDataNorm.drop(index=0, inplace=True)
+                self.highDataNorm = self.highDataNorm.append(
+                    pd.Series((highData.iloc[-1] - self.minPrice) / (self.maxPrice - self.minPrice)))
+                self.lowDataNorm = self.lowDataNorm.append(
+                    pd.Series((lowData.iloc[-1] - self.minPrice) / (self.maxPrice - self.minPrice)))
+                self.highDataNorm.reset_index(drop=True, inplace=True)
+                self.lowDataNorm.reset_index(drop=True, inplace=True)
+            self.createMatrix()
+            datetimeInt = self.data['TIME'][i] // 100
+            datetimeArray.append([datetimeInt])
+            toSave = list(lowData) + list(highData) + list(self.table)
+            toSave = np.array([toSave])
+            toSaveShaped = toSave.reshape(1, 250)
+            dataArray.append(toSaveShaped)
+            self.maxIndex -= 1
+            self.minIndex -= 1
 
 
+start = time.time()
 solver = Solver('./2_5219905305105663004')
-solver.run(797, 1583)
-print("Done")
+solver.run(797, 1500)
+print("--- %s seconds ---" % (time.time() - start))
