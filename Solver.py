@@ -9,21 +9,7 @@ def loadData(file_name):
     data = pd.read_csv(file_name, usecols=cols)
     data.rename(columns={'<DATE>': 'DATE', '<TIME>': 'TIME', '<HIGH>': 'HIGH', '<LOW>': 'LOW'}, inplace=True)
     data.dropna(inplace=True)
-    data = data[(data['DATE'].str.isdigit()) & (data['TIME'].str.isdigit())].reset_index(drop=True)
-    data = data.astype(float).astype(int)
-
-    return data
-
-
-def createOutputStorage(filename):
-    file = tables.open_file(filename, mode='w')
-    datetimeAtom = tables.Int64Atom()
-    datetimeArray = file.create_earray(file.root, 'datetime', datetimeAtom, (0,))
-
-    dataAtom = tables.Float64Atom()
-    dataArray = file.create_earray(file.root, 'data', dataAtom, (0, 250))
-
-    return file, datetimeArray, dataArray
+    return np.array(data['DATE']), np.array(data['TIME']), np.array(data['HIGH']), np.array(data['LOW'])
 
 
 def priceCounter(priceMin, priceMax, low, high):
@@ -43,7 +29,7 @@ def priceCounter(priceMin, priceMax, low, high):
 
 class Solver:
     def __init__(self, file_name):
-        self.data = loadData(file_name)
+        self.date, self.time, self.highData, self.lowData = loadData(file_name)
         self.M = 10
         self.N = 13
         self.P = 60
@@ -53,27 +39,38 @@ class Solver:
         self.highDataNorm = []
         self.maxPrice = 0
         self.minPrice = 0
-        self.maxIndex = pd.Series([])
-        self.minIndex = pd.Series([])
+        self.maxIndex = pd.Series([-1])
+        self.minIndex = pd.Series([-1])
         self.table = np.zeros((self.M * self.N))
 
+    def createOutputStorage(self, filename):
+        file = tables.open_file(filename, mode='w')
+        datetimeAtom = tables.Int64Atom()
+        datetimeArray = file.create_earray(file.root, 'datetime', datetimeAtom, (0,))
+
+        dataAtom = tables.Float64Atom()
+        # M * N = size of table, P = size of bar`s high and low level
+        dataArray = file.create_earray(file.root, 'data', dataAtom, (0, self.M * self.N + self.P * 2))
+
+        return file, datetimeArray, dataArray
+
     def run(self, startTime, endTime):
-        outputFilename = str(self.data['DATE'][startTime]) + '.h5'
-        file, datetimeArray, dataArray = createOutputStorage(outputFilename)
+        outputFilename = str(self.date[startTime]) + '.h5'
+        file, datetimeArray, dataArray = self.createOutputStorage(outputFilename)
 
         self.processData(startTime, endTime, datetimeArray, dataArray)
 
         file.close()
 
     def normalize(self, highData, lowData):
-        self.maxPrice = highData.max()
-        self.minPrice = lowData.min()
-        self.highDataNorm = highData.apply(
-            lambda x: (x - self.minPrice) / (self.maxPrice - self.minPrice)).reset_index(drop=True)
-        self.lowDataNorm = lowData.apply(
-            lambda x: (x - self.minPrice) / (self.maxPrice - self.minPrice)).reset_index(drop=True)
-        self.maxIndex = highData[highData == self.maxPrice]
-        self.minIndex = lowData[lowData == self.minPrice]
+        self.maxPrice = max(highData)
+        self.minPrice = min(lowData)
+        self.highDataNorm = np.fromiter(((x - self.minPrice) / (self.maxPrice - self.minPrice) for x in highData),
+                                        float)
+        self.lowDataNorm = np.fromiter(((x - self.minPrice) / (self.maxPrice - self.minPrice) for x in lowData), float)
+
+        self.maxIndex = np.where(highData == self.maxPrice)[0]
+        self.minIndex = np.where(lowData == self.minPrice)[0]
 
     def createMatrix(self):
         for n in range(0, self.N):
@@ -97,36 +94,32 @@ class Solver:
                 self.table[n * self.M + m] = result
 
     def processData(self, startTime, endTime, datetimeArray, dataArray):
-        highData = self.data['HIGH'][startTime: self.P + startTime]
-        lowData = self.data['LOW'][startTime: self.P + startTime]
-        self.normalize(highData, lowData)
         for i in range(self.P + startTime, endTime):
-            highData = self.data['HIGH'][i - self.P: i]
-            lowData = self.data['LOW'][i - self.P: i]
-            if (highData.iloc[-1] > self.maxPrice or lowData.iloc[-1] < self.minPrice or self.maxIndex.iloc[-1] < 0
-                    or self.minIndex.iloc[-1] < 0):
+            highData = self.highData[i - self.P: i]
+            lowData = self.lowData[i - self.P: i]
+            if (highData[-1] > self.maxPrice or lowData[-1] < self.minPrice or self.maxIndex[-1] < 0
+                    or self.minIndex[-1] < 0):
                 self.normalize(highData, lowData)
             else:
-                self.highDataNorm.drop(index=0, inplace=True)
-                self.lowDataNorm.drop(index=0, inplace=True)
-                self.highDataNorm = self.highDataNorm.append(
-                    pd.Series((highData.iloc[-1] - self.minPrice) / (self.maxPrice - self.minPrice)))
-                self.lowDataNorm = self.lowDataNorm.append(
-                    pd.Series((lowData.iloc[-1] - self.minPrice) / (self.maxPrice - self.minPrice)))
-                self.highDataNorm.reset_index(drop=True, inplace=True)
-                self.lowDataNorm.reset_index(drop=True, inplace=True)
+                self.highDataNorm = np.delete(self.highDataNorm, 0)
+                self.lowDataNorm = np.delete(self.lowDataNorm, 0)
+                self.highDataNorm = np.append(self.highDataNorm,
+                                              (highData[-1] - self.minPrice) / (self.maxPrice - self.minPrice))
+                self.lowDataNorm = np.append(self.lowDataNorm,
+                                             (lowData[-1] - self.minPrice) / (self.maxPrice - self.minPrice))
             self.createMatrix()
-            datetimeInt = self.data['TIME'][i] // 100
+            datetimeInt = self.time[i] // 100
             datetimeArray.append([datetimeInt])
-            toSave = list(lowData) + list(highData) + list(self.table)
+            toSave = list(self.lowDataNorm) + list(self.highDataNorm) + list(self.table)
             toSave = np.array([toSave])
             toSaveShaped = toSave.reshape(1, 250)
             dataArray.append(toSaveShaped)
             self.maxIndex -= 1
             self.minIndex -= 1
+            print(round(sum(self.table), 2))
 
 
 start = time.time()
-solver = Solver('./2_5219905305105663004')
-solver.run(797, 1500)
+solver = Solver('./USD000000TOD_1M_131204_131204.txt')
+solver.run(0, 423)
 print("--- %s seconds ---" % (time.time() - start))
