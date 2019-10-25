@@ -53,7 +53,7 @@ class HistogramWidget(pg.PlotWidget):
         self.plot(x, y, stepMode=True, fillLevel=0, brush=(0, 0, 255, 150))
 
 
-class Pipiskas(QWidget):
+class HistogramDrawer(QWidget):
     def __init__(self, M):
         super(self.__class__, self).__init__(None)
 
@@ -95,6 +95,7 @@ class Pipiskas(QWidget):
         pixmap = QPixmap(self.size())
         self.render(pixmap)
         pixmap.save(name)
+
 
 class MainWindow(QWidget):
     def __init__(self):
@@ -394,11 +395,11 @@ class MainWindow(QWidget):
                 file.write("L1 5/50/95 percentile for " + str(i) + " row = " + str(L1RowPercentile[i]) + "\n")
                 file.write("L2 5/50/95 percentile for " + str(i) + " row = " + str(L2RowPercentile[i]) + "\n")
 
-        self.pipiskas = Pipiskas(self.M)
+        self.histogramDrawer = HistogramDrawer(self.M)
 
-        self.pipiskas.show()
-        self.pipiskas.draw(L1All, L2All, L1Row, L2Row)
-        self.pipiskas.saveToImage(str(self.fileName[0][-11:-3]) + ".png")
+        self.histogramDrawer.show()
+        self.histogramDrawer.draw(L1All, L2All, L1Row, L2Row)
+        self.histogramDrawer.saveToImage(str(self.fileName[0][-11:-3]) + ".png")
 
     def metrics(self, tableDataDif):
         L1All = sum(tableDataDif) / len(tableDataDif)
